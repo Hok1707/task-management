@@ -1,0 +1,6 @@
+{
+  "name": "Developer Task & Environment Manager",
+  "description": "A system tailored for self-developers and engineers to manage work tickets alongside environment configurations and sensitive credentials.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
