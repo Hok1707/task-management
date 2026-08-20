@@ -264,8 +264,8 @@ export function TaskListView() {
               </div>
 
               <div className="flex items-center justify-between pt-2 border-t border-app-border text-xs">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${StatusColors[task.status]}`}>
-                  {task.status.toUpperCase()}
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${StatusColors[task.taskStatus]}`}>
+                  {task.taskStatus.toUpperCase()}
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-[11px] text-app-text-muted">
@@ -375,8 +375,8 @@ export function TaskListView() {
                       )}
                     </td>
                     <td className="px-6 py-4">
-                      <span className={`text-[10px] font-bold px-2 py-1 rounded ${StatusColors[task.status]}`}>
-                        {task.status.toUpperCase()}
+                      <span className={`text-[10px] font-bold px-2 py-1 rounded ${StatusColors[task.taskStatus]}`}>
+                        {task.taskStatus.toUpperCase()}
                       </span>
                     </td>
                     <td className="px-6 py-4">

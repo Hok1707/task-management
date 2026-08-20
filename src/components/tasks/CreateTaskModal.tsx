@@ -7,6 +7,7 @@ import { X, RotateCcw } from 'lucide-react';
 import { useTaskStore } from '../../stores/useTaskStore';
 import { useVaultStore } from '../../stores/useVaultStore';
 import { useAuthStore } from '../../stores/useAuthStore';
+import { useCreateTask } from '../../services/useCreateTaskQuery';
 import { TaskType, TaskPriority, TaskStatus } from '../../types';
 
 const DRAFT_STORAGE_KEY = 'create_task_draft_v1';
@@ -14,6 +15,8 @@ const DRAFT_STORAGE_KEY = 'create_task_draft_v1';
 const taskSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().min(1, 'Description is required'),
+  ticketNumber: z.string().optional(),
+  assignedFrom: z.string().optional(),
   implementationDetails: z.string().optional(),
   taskType: z.nativeEnum(TaskType),
   priority: z.nativeEnum(TaskPriority),
@@ -32,6 +35,8 @@ const getInitialDraft = (): TaskFormValues => {
       return {
         title: parsed.title || '',
         description: parsed.description || '',
+        ticketNumber: parsed.ticketNumber || '',
+        assignedFrom: parsed.assignedFrom || 'Backend Team',
         implementationDetails: parsed.implementationDetails || '',
         taskType: parsed.taskType || TaskType.Request,
         priority: parsed.priority || TaskPriority.Medium,
@@ -46,10 +51,12 @@ const getInitialDraft = (): TaskFormValues => {
   return {
     title: '',
     description: '',
+    ticketNumber: '',
+    assignedFrom: 'Manager',
     implementationDetails: '',
     taskType: TaskType.Request,
     priority: TaskPriority.Medium,
-    status: TaskStatus.Todo,
+    status: TaskStatus.InProgress,
     startDate: '',
     dueDate: '',
   };
@@ -59,6 +66,7 @@ export function CreateTaskModal() {
   const { isCreateModalOpen, setCreateModalOpen, addTask } = useTaskStore();
   const { environments } = useVaultStore();
   const { user } = useAuthStore();
+  const createTaskMutation = useCreateTask();
   const [hasDraft, setHasDraft] = useState<boolean>(() => {
     try {
       return Boolean(localStorage.getItem(DRAFT_STORAGE_KEY));
@@ -131,19 +139,23 @@ export function CreateTaskModal() {
     reset({
       title: '',
       description: '',
+      ticketNumber: '',
+      assignedFrom: 'Manager',
       implementationDetails: '',
       taskType: TaskType.Request,
       priority: TaskPriority.Medium,
-      status: TaskStatus.Todo,
+      status: TaskStatus.InProgress,
       startDate: '',
       dueDate: '',
     });
   };
 
   const onSubmit = (data: TaskFormValues) => {
-    addTask({
+    createTaskMutation.mutate({
       title: data.title,
       description: data.description,
+      ticketNumber: data.ticketNumber?.trim() || undefined,
+      assignedFrom: data.assignedFrom?.trim() || user?.username || 'Manager',
       implementationDetails: data.implementationDetails || undefined,
       taskType: data.taskType,
       priority: data.priority,
@@ -151,16 +163,35 @@ export function CreateTaskModal() {
       assignedBy: user?.username || 'Unknown',
       startDate: data.startDate || undefined,
       dueDate: data.dueDate || undefined,
+    }, {
+      onError: () => {
+        // Fallback to Zustand store task creation if Spring Boot endpoint is offline
+        addTask({
+          title: data.title,
+          description: data.description,
+          ticketNumber: data.ticketNumber?.trim() || undefined as any,
+          assignedFrom: data.assignedFrom?.trim() || user?.username || 'Manager',
+          implementationDetails: data.implementationDetails || undefined,
+          taskType: data.taskType,
+          priority: data.priority,
+          taskStatus: data.status,
+          startDate: data.startDate || undefined,
+          dueDate: data.dueDate || undefined,
+        });
+      }
     });
+
     localStorage.removeItem(DRAFT_STORAGE_KEY);
     setHasDraft(false);
     reset({
       title: '',
       description: '',
+      ticketNumber: '',
+      assignedFrom: 'Manager',
       implementationDetails: '',
       taskType: TaskType.Request,
       priority: TaskPriority.Medium,
-      status: TaskStatus.Todo,
+      status: TaskStatus.InProgress,
       startDate: '',
       dueDate: '',
     });
@@ -213,7 +244,7 @@ export function CreateTaskModal() {
                   <input
                     {...register('title')}
                     className="w-full px-3.5 sm:px-4 py-2.5 bg-black/5 border border-app-border rounded-lg focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none text-app-text text-sm transition-all min-h-[42px]"
-                    placeholder="e.g. Upgrade Redis Cluster to v7.2"
+                    placeholder="e.g. Implement payment service"
                   />
                   {errors.title && <p className="text-red-400 text-xs mt-1">{errors.title.message}</p>}
                 </div>
@@ -226,9 +257,33 @@ export function CreateTaskModal() {
                     {...register('description')}
                     rows={3}
                     className="w-full px-3.5 sm:px-4 py-2.5 bg-black/5 border border-app-border rounded-lg focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none text-app-text text-sm transition-all resize-none"
-                    placeholder="Provide a high-level summary of the task..."
+                    placeholder="e.g. Implement payment processing API"
                   />
                   {errors.description && <p className="text-red-400 text-xs mt-1">{errors.description.message}</p>}
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 sm:gap-6">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-app-text-muted mb-2">
+                      Ticket Number (Optional)
+                    </label>
+                    <input
+                      {...register('ticketNumber')}
+                      className="w-full px-3.5 sm:px-4 py-2.5 bg-black/5 border border-app-border rounded-lg focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none text-app-text font-mono text-sm transition-all min-h-[42px]"
+                      placeholder="e.g. RITM001298, INC-1024 (auto-generated if empty)"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-app-text-muted mb-2">
+                      Assigned From
+                    </label>
+                    <input
+                      {...register('assignedFrom')}
+                      className="w-full px-3.5 sm:px-4 py-2.5 bg-black/5 border border-app-border rounded-lg focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none text-app-text text-sm transition-all min-h-[42px]"
+                      placeholder="e.g. Backend Team, DevOps"
+                    />
+                  </div>
                 </div>
 
                 <div>
@@ -242,7 +297,7 @@ export function CreateTaskModal() {
                     {...register('implementationDetails')}
                     rows={3}
                     className="w-full px-3.5 sm:px-4 py-2.5 bg-black/5 border border-app-border rounded-lg focus:ring-1 focus:ring-app-accent focus:border-app-accent outline-none text-app-text text-xs font-mono transition-all resize-y"
-                    placeholder="Technical specifications, reproduction steps, architectural notes, code snippets, or PR links..."
+                    placeholder="e.g. Use Spring Boot, PostgreSQL and Redis. Payment processing must be idempotent and support transaction rollback."
                   />
                 </div>
 

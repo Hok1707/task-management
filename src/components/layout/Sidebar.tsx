@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useVaultStore } from '../../stores/useVaultStore';
 import { useTaskStore } from '../../stores/useTaskStore';
 import { useAuditStore } from '../../stores/useAuditStore';
-import { Plus, Trash2, CheckCircle2, Circle, AlertCircle, CheckSquare, KeyRound, Edit2, Check, X, Copy, BarChart3, History, RotateCcw } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, Circle, AlertCircle, CheckSquare, KeyRound, Edit2, Check, X, Copy, BarChart3, History, RotateCcw, Eye, EyeOff } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { MaskedCredential } from '../ui/MaskedCredential';
 import { EmptyState } from '../ui/EmptyState';
@@ -229,6 +229,7 @@ interface EnvironmentCardProps {
 function EnvironmentCard({ env }: EnvironmentCardProps) {
   const { deleteEnvironment, updateEnvironment } = useVaultStore();
   const [isEditing, setIsEditing] = useState(false);
+  const [showEditSecret, setShowEditSecret] = useState(false);
   const [editForm, setEditForm] = useState(env);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedUser, setCopiedUser] = useState(false);
@@ -236,11 +237,13 @@ function EnvironmentCard({ env }: EnvironmentCardProps) {
   const handleSave = () => {
     updateEnvironment(env.id, editForm);
     setIsEditing(false);
+    setShowEditSecret(false);
   };
 
   const handleCancel = () => {
     setEditForm(env);
     setIsEditing(false);
+    setShowEditSecret(false);
   };
 
   if (isEditing) {
@@ -290,12 +293,22 @@ function EnvironmentCard({ env }: EnvironmentCardProps) {
         </div>
         <div>
           <label className="block text-[9px] uppercase tracking-wider text-app-text-muted mb-1">Secret Key</label>
-          <input 
-            value={editForm.secretKey} 
-            onChange={(e) => setEditForm({...editForm, secretKey: e.target.value})}
-            type="password"
-            className="w-full bg-black/10 border border-app-border rounded px-2 py-1 text-[10px] font-mono text-app-text outline-none focus:border-app-accent" 
-          />
+          <div className="relative">
+            <input 
+              value={editForm.secretKey} 
+              onChange={(e) => setEditForm({...editForm, secretKey: e.target.value})}
+              type={showEditSecret ? "text" : "password"}
+              className="w-full bg-black/10 border border-app-border rounded px-2 py-1 pr-7 text-[10px] font-mono text-app-text outline-none focus:border-app-accent" 
+            />
+            <button
+              type="button"
+              onClick={() => setShowEditSecret(!showEditSecret)}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-app-text-muted hover:text-app-text cursor-pointer p-0.5"
+              title={showEditSecret ? "Hide secret" : "Show secret"}
+            >
+              {showEditSecret ? <EyeOff className="w-3 h-3 text-amber-400" /> : <Eye className="w-3 h-3 text-app-text-muted" />}
+            </button>
+          </div>
         </div>
       </motion.div>
     );

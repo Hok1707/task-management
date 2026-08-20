@@ -26,13 +26,27 @@ export interface Task {
   implementationDetails?: string;
   taskType: TaskType;
   priority: TaskPriority;
-  status: TaskStatus;
+  taskStatus: TaskStatus;
   startDate?: string;
   dueDate?: string;
-  assignedBy: string;
+  assignedFrom?: string;
+  assignedTo?: string;
   createdAt: string;
   updatedAt: string;
   isArchived?: boolean;
+}
+
+export interface ApiTaskPayload {
+  title: string;
+  description: string;
+  ticketNumber: string;
+  assignedFrom: string;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | string;
+  taskType: 'INCIDENT' | 'CHANGE' | 'REQUEST' | string;
+  taskStatus: 'TODO' | 'INPROGRES' | 'ON_HOLD' | 'COMPLETED' | string;
+  implementationDetails?: string;
+  startDate?: string;
+  dueDate?: string;
 }
 
 export interface EnvironmentVault {
@@ -116,6 +130,37 @@ export interface PaginationMeta {
   totalPages: number;
   hasNextPage: boolean;
   hasPrevPage: boolean;
+}
+
+export interface ApiResponse<T> {
+  success: boolean;
+  message: string;
+  data: T;
+  timestamp: string;
+}
+
+export interface PageResponse<T> {
+  content: T[];
+  page: number;
+  size: number;
+  totalElements: number;
+  totalPages: number;
+  first: boolean;
+  last: boolean;
+}
+
+export interface FieldError {
+  field: string;
+  message: string;
+}
+
+export interface ApiError {
+  timestamp: string;
+  status: number;
+  error: string;
+  message: string;
+  path: string;
+  fieldErrors?: FieldError[];
 }
 
 export interface TasksResponse {

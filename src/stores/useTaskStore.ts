@@ -51,7 +51,7 @@ interface TaskState {
 
   // Data fetching & Spring Boot API Mutations
   fetchTasks: () => Promise<void>;
-  addTask: (task: Omit<Task, 'id' | 'ticketNumber' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  addTask: (task: Omit<Task, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
   updateTask: (id: string, task: Partial<Task>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   loadDemoTasks: () => Promise<void>;
@@ -73,10 +73,10 @@ const INITIAL_DEMO_TASKS: Task[] = [
     title: 'PostgreSQL Connection Pool Exhaustion under load',
     description: 'Database connection timeouts spiking on user authentication service during batch sync jobs.',
     implementationDetails: 'Increase max_connections in postgresql.conf and tune HikariCP maximumPoolSize to 50.',
-    status: TaskStatus.InProgress,
+    taskStatus: TaskStatus.InProgress,
     priority: TaskPriority.Critical,
     taskType: TaskType.Incident,
-    assignedBy: 'Alex Rivera',
+    assignedFrom: 'Alex Rivera',
     assignedTo: 'Backend Team',
     dueDate: new Date(Date.now() + 86400000 * 2).toISOString(),
     isArchived: false,
@@ -89,10 +89,10 @@ const INITIAL_DEMO_TASKS: Task[] = [
     title: 'Migrate Spring Boot microservices to Spring Boot 3.4',
     description: 'Upgrade Jakarta EE baseline and verify native compilation profile compatibility.',
     implementationDetails: 'Update pom.xml dependencies and migrate deprecated SecurityFilterChain builders.',
-    status: TaskStatus.Todo,
+    taskStatus: TaskStatus.Todo,
     priority: TaskPriority.High,
     taskType: TaskType.Change,
-    assignedBy: 'DevOps Lead',
+    assignedFrom: 'DevOps Lead',
     assignedTo: 'Platform Team',
     dueDate: new Date(Date.now() + 86400000 * 5).toISOString(),
     isArchived: false,
@@ -105,10 +105,10 @@ const INITIAL_DEMO_TASKS: Task[] = [
     title: 'Implement Redis Distributed Cache for JWT Token Verification',
     description: 'Offload token validation query traffic from primary database to Redis cluster.',
     implementationDetails: 'Configure Spring Cache Manager with RedisTemplate and set TTL to 3600 seconds.',
-    status: TaskStatus.Completed,
+    taskStatus: TaskStatus.Completed,
     priority: TaskPriority.Medium,
     taskType: TaskType.Request,
-    assignedBy: 'Security Lead',
+    assignedFrom: 'Security Lead',
     assignedTo: 'Alex Rivera',
     dueDate: new Date(Date.now() - 86400000).toISOString(),
     isArchived: false,
@@ -121,10 +121,10 @@ const INITIAL_DEMO_TASKS: Task[] = [
     title: 'Kubernetes Ingress Gateway 502 Bad Gateway error spike',
     description: 'Intermittent upstream resets reported by cloud load balancer during rolling container updates.',
     implementationDetails: 'Set preStop lifecycle hook sleep 10s and increase terminationGracePeriodSeconds to 60.',
-    status: TaskStatus.OnHold,
+    taskStatus: TaskStatus.OnHold,
     priority: TaskPriority.Critical,
     taskType: TaskType.Incident,
-    assignedBy: 'Alex Rivera',
+    assignedFrom: 'Alex Rivera',
     assignedTo: 'SRE Team',
     dueDate: new Date(Date.now() + 86400000 * 1).toISOString(),
     isArchived: false,
@@ -137,10 +137,10 @@ const INITIAL_DEMO_TASKS: Task[] = [
     title: 'Rotate AWS IAM STS credentials & refresh staging secrets',
     description: 'Quarterly compliance access token cycle across CI/CD runner environments.',
     implementationDetails: 'Generate new KMS keys and update GitHub Secrets Vault.',
-    status: TaskStatus.Completed,
+    taskStatus: TaskStatus.Completed,
     priority: TaskPriority.Low,
     taskType: TaskType.Change,
-    assignedBy: 'Compliance Officer',
+    assignedFrom: 'Compliance Officer',
     assignedTo: 'Alex Rivera',
     dueDate: new Date(Date.now() - 86400000 * 4).toISOString(),
     isArchived: false,
@@ -364,12 +364,12 @@ export const useTaskStore = create<TaskState>((set, get) => ({
 
     try {
       await taskApi.updateTask(id, updatedFields);
-      if (existing && updatedFields.status && updatedFields.status !== existing.status) {
+      if (existing && updatedFields.taskStatus && updatedFields.taskStatus !== existing.taskStatus) {
         useAuditStore.getState().addLog(
           'task_status_changed',
           existing.ticketNumber,
-          `Status transitioned from ${existing.status} to ${updatedFields.status}`,
-          updatedFields.status === TaskStatus.Completed ? 'info' : 'warning'
+          `Status transitioned from ${existing.taskStatus} to ${updatedFields.taskStatus}`,
+          updatedFields.taskStatus === TaskStatus.Completed ? 'info' : 'warning'
         );
       } else if (existing) {
         useAuditStore.getState().addLog(
@@ -433,10 +433,10 @@ export const useTaskStore = create<TaskState>((set, get) => ({
         ticketNumber: `BENCH-${1000 + i}`,
         title: `Scale benchmark ticket #${i} for ${srv}`,
         description: `Automated test workload ticket simulating enterprise microservices state for ${srv}.`,
-        status: s,
+        taskStatus: s,
         priority: p,
         taskType: t,
-        assignedBy: 'Benchmark Runner',
+        assignedFrom: 'Benchmark Runner',
         assignedTo: `Engineer ${(i % 10) + 1}`,
         dueDate: new Date(Date.now() + (i % 30) * 86400000).toISOString(),
         implementationDetails: `Verification steps for ${srv}: check latency percentiles and resource allocation.`,
@@ -461,7 +461,7 @@ export const useTaskStore = create<TaskState>((set, get) => ({
     const current = get().tasks;
     let count = 0;
     for (const t of current) {
-      if (t.status === TaskStatus.Completed && !t.isArchived) {
+      if (t.taskStatus === TaskStatus.Completed && !t.isArchived) {
         await taskApi.updateTask(t.id, { isArchived: true });
         count++;
       }
@@ -532,31 +532,34 @@ export const useTaskStore = create<TaskState>((set, get) => ({
   addTemplateTask: async (template) => {
     const templates = {
       incident: {
+        ticketNumber: 'INC-1234',
         title: 'SSO 504 Gateway Timeout during peak traffic',
         description: 'Users on US-East experiencing intermittent authentication failures.',
         implementationDetails: 'Check ingress nginx rate limits and pod memory limits.',
         taskType: TaskType.Incident,
         priority: TaskPriority.Critical,
-        status: TaskStatus.InProgress,
-        assignedBy: 'Alex Rivera',
+        taskStatus: TaskStatus.InProgress,
+        assignedFrom: 'Alex Rivera',
       },
       change: {
         title: 'Upgrade PostgreSQL cluster to v16.2',
+        ticketNumber: 'CHG-1234',
         description: 'Apply security patches and test replication failover in Staging.',
         implementationDetails: 'Run terraform apply on database module and execute pg_upgrade.',
         taskType: TaskType.Change,
         priority: TaskPriority.High,
-        status: TaskStatus.Todo,
-        assignedBy: 'Alex Rivera',
+        taskStatus: TaskStatus.Todo,
+        assignedFrom: 'Alex Rivera',
       },
       request: {
         title: 'Provision developer Redis cache cluster',
+        ticketNumber: 'REQ-1234',
         description: 'Allocate dedicated Redis cache instance for session state testing.',
         implementationDetails: 'Update helm values.yaml for caching layer.',
         taskType: TaskType.Request,
         priority: TaskPriority.Medium,
-        status: TaskStatus.Todo,
-        assignedBy: 'Alex Rivera',
+        taskStatus: TaskStatus.Todo,
+        assignedFrom: 'Alex Rivera',
       },
     };
     const selected = templates[template];

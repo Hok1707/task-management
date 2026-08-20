@@ -110,11 +110,11 @@ const TaskCardItem: React.FC<{ task: Task; isOverlay?: boolean }> = ({ task, isO
                 <div className="px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-app-text-muted border-b border-app-border">
                   Move status
                 </div>
-                {Object.values(TaskStatus).map((status) => (
+                {Object.values(TaskStatus).map((taskStatus) => (
                   <button
                     key={status}
                     onClick={() => {
-                      updateTask(task.id, { status });
+                      updateTask(task.id, { taskStatus });
                       setShowStatusMenu(false);
                     }}
                     className={`w-full text-left px-3 py-1.5 hover:bg-app-ui flex items-center justify-between cursor-pointer ${
@@ -315,14 +315,14 @@ export function KanbanBoard() {
     if (!targetStatus) {
       const overTask = tasks.find((t) => t.id === overId);
       if (overTask) {
-        targetStatus = overTask.status;
+        targetStatus = overTask.taskStatus;
       }
     }
 
     if (targetStatus) {
       const draggedTask = tasks.find((t) => t.id === activeTaskId);
-      if (draggedTask && draggedTask.status !== targetStatus) {
-        updateTask(activeTaskId, { status: targetStatus });
+      if (draggedTask && draggedTask.taskStatus !== targetStatus) {
+        updateTask(activeTaskId, { taskStatus: targetStatus });
       }
     }
   };
@@ -460,7 +460,7 @@ export function KanbanBoard() {
           All Columns ({tasks.length})
         </button>
         {columns.map((col) => {
-          const count = tasks.filter((t) => t.status === col.status).length;
+          const count = tasks.filter((t) => t.taskStatus === col.status).length;
           return (
             <button
               key={col.status}
@@ -487,7 +487,7 @@ export function KanbanBoard() {
             <DroppableColumn
               key={col.status}
               col={col}
-              tasks={tasks.filter((t) => t.status === col.status)}
+              tasks={tasks.filter((t) => t.taskStatus === col.status)}
               totalStatusCount={statusCounts[col.status] || 0}
               isSingleMobileView={mobileColumn !== 'all'}
             />

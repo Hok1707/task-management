@@ -61,7 +61,7 @@ export function EnvironmentVaultPanel() {
                   </div>
                 </div>
 
-                <MaskedCredential value={env.secretKey} />
+                <MaskedCredential value={env.secretKey} envName={env.envName} />
               </div>
             </motion.div>
           ))}

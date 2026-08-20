@@ -12,27 +12,30 @@ interface VaultState {
   loadDemoEnvironments: () => void;
 }
 
-const initialEnvironments: EnvironmentVault[] = [
-  {
-    id: 'env-prod-01',
-    envName: 'Production-01',
-    baseUrl: 'https://api.prod.example.com',
-    username: 'admin',
-    secretKey: 'prod_secret_key_12345',
-  },
-  {
-    id: 'env-stage-01',
-    envName: 'Staging',
-    baseUrl: 'https://api.staging.example.com',
-    username: 'test_admin',
-    secretKey: 'stage_secret_key_abcde',
-  },
-];
+function getInitialEnvironments(): EnvironmentVault[] {
+  const metaEnv = (import.meta as any).env || {};
+  return [
+    {
+      id: 'env-prod-01',
+      envName: 'Production-01',
+      baseUrl: metaEnv.VITE_PROD_API_URL || 'https://api.prod.example.com',
+      username: metaEnv.VITE_PROD_USERNAME || 'admin',
+      secretKey: metaEnv.VITE_PROD_SECRET_KEY || '',
+    },
+    {
+      id: 'env-stage-01',
+      envName: 'Staging',
+      baseUrl: metaEnv.VITE_STAGE_API_URL || 'https://api.staging.example.com',
+      username: metaEnv.VITE_STAGE_USERNAME || 'test_admin',
+      secretKey: metaEnv.VITE_STAGE_SECRET_KEY || '',
+    },
+  ];
+}
 
 export const useVaultStore = create<VaultState>()(
   persist(
     (set) => ({
-      environments: initialEnvironments,
+      environments: getInitialEnvironments(),
       addEnvironment: (env) =>
         set((state) => {
           const newEnv = { ...env, id: uuidv4() };
@@ -77,7 +80,7 @@ export const useVaultStore = create<VaultState>()(
           };
         }),
       loadDemoEnvironments: () => {
-        set({ environments: initialEnvironments });
+        set({ environments: getInitialEnvironments() });
         useAuditStore.getState().addLog(
           'vault_created',
           'SYSTEM',

@@ -1,19 +1,14 @@
-import { Task, TaskPriority, TaskStatus, TaskType, TaskAnalyticsData } from '../types';
+import { Task, TaskPriority, TaskStatus, TaskType, TaskAnalyticsData, ApiResponse, PageResponse } from '../types';
+import { apiClient, getApiBaseUrl, setApiBaseUrl } from './apiClient';
+import {
+  buildApiTaskPayload,
+  normalizeTaskFromApi,
+  formatTaskStatusForApi,
+  formatTaskTypeForApi,
+  formatPriorityForApi,
+} from './useCreateTaskQuery';
 
-export interface SpringBootPageResponse<T> {
-  content?: T[];
-  data?: T[];
-  tasks?: T[];
-  totalElements?: number;
-  total?: number;
-  totalPages?: number;
-  number?: number;
-  page?: number;
-  size?: number;
-  limit?: number;
-  first?: boolean;
-  last?: boolean;
-}
+export { getApiBaseUrl, setApiBaseUrl };
 
 export interface TaskQueryParams {
   page?: number;
@@ -31,25 +26,17 @@ export interface TaskQueryParams {
 }
 
 const LOCAL_STORAGE_KEY = 'spring_boot_fallback_tasks_v2';
-const API_URL_STORAGE_KEY = 'spring_boot_api_base_url';
 
-export function getApiBaseUrl(): string {
-  const customUrl = localStorage.getItem(API_URL_STORAGE_KEY);
-  if (customUrl) return customUrl.replace(/\/+$/, '');
-  const envUrl = import.meta.env.VITE_API_BASE_URL;
-  if (envUrl) return String(envUrl).replace(/\/+$/, '');
-  return ''; // Default to relative '/api' or proxy
-}
-
-export function setApiBaseUrl(url: string): void {
-  if (!url || url.trim() === '') {
-    localStorage.removeItem(API_URL_STORAGE_KEY);
-  } else {
-    localStorage.setItem(API_URL_STORAGE_KEY, url.trim().replace(/\/+$/, ''));
+/**
+ * Utility helper to unwrap Spring Boot ApiResponse<T> wrapper if present
+ */
+export function unwrapResponse<T>(data: any): T {
+  if (data && typeof data === 'object' && 'data' in data && 'success' in data) {
+    return data.data as T;
   }
+  return data as T;
 }
 
-// Fallback seed tasks for offline/local simulation
 function getLocalFallbackTasks(): Task[] {
   try {
     const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -69,6 +56,11 @@ function saveLocalFallbackTasks(tasks: Task[]): void {
 }
 
 export const taskApi = {
+  /**
+   * GET /api/v1/tasks
+   * Accepts Pageable (page, size, sort) and filter params.
+   * Parses PageResponse<TaskResponse> and ApiResponse<PageResponse<TaskResponse>>.
+   */
   async getTasks(params: TaskQueryParams = {}): Promise<{
     tasks: Task[];
     pagination: {
@@ -83,155 +75,162 @@ export const taskApi = {
     totalUnfiltered: number;
     isOfflineFallback?: boolean;
   }> {
-    const baseUrl = getApiBaseUrl();
     const page = params.page || 1;
-    const limit = params.limit || 50;
+    const limit = params.limit || 20; // Default Spring Boot @PageableDefault size=20
 
-    // Build Spring Boot query parameters
-    const query = new URLSearchParams();
-    // Spring Data pageable standard (0-based) & standard page
-    query.set('page', String(page - 1)); // 0-based for standard Spring Data
-    query.set('pageNumber', String(page));
-    query.set('size', String(limit));
-    query.set('limit', String(limit));
+    // Format query parameters according to Spring Data Pageable specs
+    const queryParams: Record<string, string> = {
+      page: String(page - 1), // 0-indexed for Spring Pageable
+      size: String(limit),
+      sort: `${params.sortField || 'createdAt'},${params.sortOrder || 'desc'}`,
+    };
 
     if (params.search) {
-      query.set('search', params.search);
-      query.set('q', params.search);
+      queryParams.search = params.search;
+      queryParams.q = params.search;
     }
     if (params.status && params.status.length > 0) {
-      query.set('status', params.status.join(','));
+      queryParams.status = params.status.join(',');
     }
     if (params.taskType && params.taskType.length > 0) {
-      query.set('taskType', params.taskType.join(','));
+      queryParams.taskType = params.taskType.join(',');
     }
-    if (params.quickFilter) {
-      query.set('quickFilter', params.quickFilter);
-    }
-    if (params.showArchived !== undefined) {
-      query.set('showArchived', String(params.showArchived));
-    }
-    if (params.sortField) {
-      query.set('sortField', params.sortField);
-      query.set('sortOrder', params.sortOrder || 'asc');
-      // Standard Spring Data 'sort=field,asc' format
-      query.set('sort', `${params.sortField},${params.sortOrder || 'asc'}`);
-    }
-    if (params.startDate) query.set('startDate', params.startDate);
-    if (params.endDate) query.set('endDate', params.endDate);
-    if (params.dateField) query.set('dateField', params.dateField);
-
-    const targetUrl = `${baseUrl}/api/tasks?${query.toString()}`;
+    if (params.quickFilter) queryParams.quickFilter = params.quickFilter;
+    if (params.showArchived !== undefined) queryParams.showArchived = String(params.showArchived);
+    if (params.startDate) queryParams.startDate = params.startDate;
+    if (params.endDate) queryParams.endDate = params.endDate;
+    if (params.dateField) queryParams.dateField = params.dateField;
 
     try {
-      const response = await fetch(targetUrl, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-      });
+      let response;
+      try {
+        response = await apiClient.get('/api/v1/tasks', { params: queryParams });
+      } catch {
+        response = await apiClient.get('/api/tasks', { params: queryParams });
+      }
 
-      if (response.ok) {
-        const data = await response.json();
-        
-        // Parse Spring Data Pageable or custom REST format
-        let taskList: Task[] = [];
-        let total = 0;
-        let totalPages = 1;
+      const rawData = response.data;
+      const data = unwrapResponse<PageResponse<Task> | Task[] | any>(rawData);
 
-        if (Array.isArray(data)) {
-          taskList = data;
-          total = data.length;
-          totalPages = Math.max(1, Math.ceil(total / limit));
-        } else if (data.content && Array.isArray(data.content)) {
-          // Spring Data Page<T> format
-          taskList = data.content;
+      let taskList: Task[] = [];
+      let total = 0;
+      let totalPages = 1;
+
+      if (Array.isArray(data)) {
+        taskList = data.map(normalizeTaskFromApi);
+        total = data.length;
+        totalPages = Math.max(1, Math.ceil(total / limit));
+      } else if (data && typeof data === 'object') {
+        // PageResponse<T> handling: content, page, size, totalElements, totalPages
+        if (Array.isArray(data.content)) {
+          taskList = data.content.map(normalizeTaskFromApi);
           total = data.totalElements ?? data.content.length;
           totalPages = data.totalPages ?? Math.max(1, Math.ceil(total / limit));
-        } else if (data.data && Array.isArray(data.data)) {
-          taskList = data.data;
+        } else if (Array.isArray(data.data)) {
+          taskList = data.data.map(normalizeTaskFromApi);
           total = data.total ?? data.data.length;
           totalPages = data.totalPages ?? Math.max(1, Math.ceil(total / limit));
-        } else if (data.tasks && Array.isArray(data.tasks)) {
-          taskList = data.tasks;
+        } else if (Array.isArray(data.tasks)) {
+          taskList = data.tasks.map(normalizeTaskFromApi);
           total = data.total ?? data.tasks.length;
           totalPages = data.totalPages ?? Math.max(1, Math.ceil(total / limit));
         }
-
-        // Compute or extract status counts
-        const statusCounts: Record<TaskStatus, number> = {
-          [TaskStatus.Todo]: 0,
-          [TaskStatus.InProgress]: 0,
-          [TaskStatus.OnHold]: 0,
-          [TaskStatus.Completed]: 0,
-        };
-
-        if (data.statusCounts) {
-          Object.assign(statusCounts, data.statusCounts);
-        } else {
-          taskList.forEach((t) => {
-            if (t.status && statusCounts[t.status] !== undefined) {
-              statusCounts[t.status]++;
-            }
-          });
-        }
-
-        return {
-          tasks: taskList,
-          pagination: {
-            total,
-            page,
-            limit,
-            totalPages,
-            hasNextPage: page < totalPages,
-            hasPrevPage: page > 1,
-          },
-          statusCounts,
-          totalUnfiltered: data.totalUnfiltered ?? total,
-          isOfflineFallback: false,
-        };
       }
+
+      const statusCounts: Record<TaskStatus, number> = {
+        [TaskStatus.Todo]: 0,
+        [TaskStatus.InProgress]: 0,
+        [TaskStatus.OnHold]: 0,
+        [TaskStatus.Completed]: 0,
+      };
+
+      if (data && data.statusCounts) {
+        Object.assign(statusCounts, data.statusCounts);
+      } else {
+        taskList.forEach((t) => {
+          if (t.taskStatus && statusCounts[t.taskStatus] !== undefined) {
+            statusCounts[t.taskStatus]++;
+          }
+        });
+      }
+
+      return {
+        tasks: taskList,
+        pagination: {
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPrevPage: page > 1,
+        },
+        statusCounts,
+        totalUnfiltered: data?.totalUnfiltered ?? total,
+        isOfflineFallback: false,
+      };
     } catch (err) {
-      console.warn(`[Spring Boot API] Could not connect to ${targetUrl}. Falling back to local offline mode.`, err);
+      console.warn('[Spring Boot API] Could not fetch tasks via Axios. Falling back to local mode.', err);
     }
 
-    // Fallback: local in-memory simulation if Spring Boot is offline or not running in cloud container
     return this.getLocalPaginatedTasks(params);
   },
 
-  async createTask(taskData: Partial<Task>): Promise<Task> {
-    const baseUrl = getApiBaseUrl();
-    const targetUrl = `${baseUrl}/api/tasks`;
+  /**
+   * GET /api/v1/tasks/{id}
+   * Returns single TaskResponse (unwrapped from ApiResponse<TaskResponse> if needed)
+   */
+  async getTaskById(id: string): Promise<Task | null> {
+    try {
+      let response;
+      try {
+        response = await apiClient.get(`/api/v1/tasks/${id}`);
+      } catch {
+        response = await apiClient.get(`/api/tasks/${id}`);
+      }
+      const raw = unwrapResponse<any>(response.data);
+      return raw ? normalizeTaskFromApi(raw) : null;
+    } catch (err) {
+      console.warn(`[Spring Boot API] Failed to fetch task ${id}`, err);
+    }
+
+    const localTasks = getLocalFallbackTasks();
+    return localTasks.find((t) => t.id === id) || null;
+  },
+
+  /**
+   * POST /api/v1/tasks
+   * Accepts Task creation payload and unwraps ApiResponse<TaskResponse>
+   */
+  async createTask(taskData: Partial<Task> & { assignedFrom?: string; taskStatus?: string }): Promise<Task> {
+    const requestBody = buildApiTaskPayload(taskData as any);
 
     try {
-      const response = await fetch(targetUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(taskData),
-      });
-      if (response.ok) {
-        const created: Task = await response.json();
-        return created;
+      let response;
+      try {
+        response = await apiClient.post('/api/v1/tasks', requestBody);
+      } catch {
+        response = await apiClient.post('/api/tasks', requestBody);
       }
+      const rawTask = unwrapResponse<any>(response.data);
+      return normalizeTaskFromApi(rawTask);
     } catch (err) {
       console.warn('[Spring Boot API] POST failed, saving to local fallback storage', err);
     }
 
-    // Local fallback creation
     const localTasks = getLocalFallbackTasks();
     const newTask: Task = {
-      id: taskData.id || `task-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
-      ticketNumber: taskData.ticketNumber || `DEV-${Math.floor(1000 + Math.random() * 9000)}`,
-      title: taskData.title || 'Untitled Task',
-      description: taskData.description || '',
-      status: taskData.status || TaskStatus.Todo,
+      id: taskData.id,
+      ticketNumber: requestBody.ticketNumber,
+      title: requestBody.title,
+      description: requestBody.description,
+      taskStatus: taskData.taskStatus || TaskStatus.OnHold,
       priority: taskData.priority || TaskPriority.Medium,
       taskType: taskData.taskType || TaskType.Request,
-      assignedBy: taskData.assignedBy || 'Current User',
+      assignedFrom: requestBody.assignedFrom,
       assignedTo: taskData.assignedTo || 'Unassigned',
-      dueDate: taskData.dueDate || '',
-      implementationDetails: taskData.implementationDetails || '',
+      dueDate: requestBody.dueDate || '',
+      startDate: requestBody.startDate || '',
+      implementationDetails: requestBody.implementationDetails || '',
       isArchived: Boolean(taskData.isArchived),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -241,25 +240,35 @@ export const taskApi = {
     return newTask;
   },
 
-  async updateTask(id: string, updates: Partial<Task>): Promise<Task | null> {
-    const baseUrl = getApiBaseUrl();
-    const targetUrl = `${baseUrl}/api/tasks/${id}`;
+  /**
+   * PUT /api/v1/tasks/{id}
+   * Updates task and unwraps ApiResponse<TaskResponse>
+   */
+  async updateTask(id: string, updates: Partial<Task> & { taskStatus?: string }): Promise<Task | null> {
+    const updateBody: Record<string, any> = { ...updates };
+    if (updates.taskStatus || updates.taskStatus) {
+      updateBody.taskStatus = formatTaskStatusForApi(updates.taskStatus || updates.taskStatus);
+    }
+    if (updates.taskType) {
+      updateBody.taskType = formatTaskTypeForApi(updates.taskType);
+    }
+    if (updates.priority) {
+      updateBody.priority = formatPriorityForApi(updates.priority);
+    }
 
     try {
-      const response = await fetch(targetUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updates),
-      });
-      if (response.ok) {
-        const updated: Task = await response.json();
-        return updated;
+      let response;
+      try {
+        response = await apiClient.put(`/api/v1/tasks/${id}`, updateBody);
+      } catch {
+        response = await apiClient.put(`/api/tasks/${id}`, updateBody);
       }
+      const rawTask = unwrapResponse<any>(response.data);
+      return normalizeTaskFromApi(rawTask);
     } catch (err) {
       console.warn('[Spring Boot API] PUT failed, updating local fallback storage', err);
     }
 
-    // Local fallback update
     const localTasks = getLocalFallbackTasks();
     const idx = localTasks.findIndex((t) => t.id === id);
     if (idx !== -1) {
@@ -274,15 +283,17 @@ export const taskApi = {
     return null;
   },
 
+  /**
+   * DELETE /api/v1/tasks/{id}
+   */
   async deleteTask(id: string): Promise<boolean> {
-    const baseUrl = getApiBaseUrl();
-    const targetUrl = `${baseUrl}/api/tasks/${id}`;
-
     try {
-      const response = await fetch(targetUrl, {
-        method: 'DELETE',
-      });
-      if (response.ok) return true;
+      try {
+        await apiClient.delete(`/api/v1/tasks/${id}`);
+      } catch {
+        await apiClient.delete(`/api/tasks/${id}`);
+      }
+      return true;
     } catch (err) {
       console.warn('[Spring Boot API] DELETE failed, removing from local fallback storage', err);
     }
@@ -293,32 +304,34 @@ export const taskApi = {
     return true;
   },
 
+  /**
+   * GET /api/v1/tasks/analytics
+   */
   async getAnalytics(): Promise<TaskAnalyticsData> {
-    const baseUrl = getApiBaseUrl();
-    const targetUrl = `${baseUrl}/api/tasks/analytics`;
-
     try {
-      const response = await fetch(targetUrl);
-      if (response.ok) {
-        return await response.json();
+      let response;
+      try {
+        response = await apiClient.get('/api/v1/tasks/analytics');
+      } catch {
+        response = await apiClient.get('/api/tasks/analytics');
       }
+      return unwrapResponse<TaskAnalyticsData>(response.data);
     } catch (err) {
       console.warn('[Spring Boot API] Analytics endpoint unavailable, computing locally', err);
     }
 
-    // Compute analytics from local fallback
     const allTasks = getLocalFallbackTasks();
     const totalTasks = allTasks.length;
-    const completedTasks = allTasks.filter((t) => t.status === TaskStatus.Completed).length;
-    const inProgressTasks = allTasks.filter((t) => t.status === TaskStatus.InProgress).length;
+    const completedTasks = allTasks.filter((t) => t.taskStatus === TaskStatus.Completed).length;
+    const inProgressTasks = allTasks.filter((t) => t.taskStatus === TaskStatus.InProgress).length;
     const criticalTasks = allTasks.filter(
-      (t) => t.priority === TaskPriority.Critical && t.status !== TaskStatus.Completed
+      (t) => t.priority === TaskPriority.Critical && t.taskStatus !== TaskStatus.Completed
     ).length;
     const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
 
     const statusDistribution = Object.values(TaskStatus).map((status) => ({
       name: status,
-      value: allTasks.filter((t) => t.status === status).length,
+      value: allTasks.filter((t) => t.taskStatus === status).length,
       color:
         status === TaskStatus.Completed
           ? '#10b981'
@@ -346,17 +359,21 @@ export const taskApi = {
       const filtered = allTasks.filter((t) => t.taskType === type);
       return {
         name: type,
-        Todo: filtered.filter((t) => t.status === TaskStatus.Todo).length,
-        InProgress: filtered.filter((t) => t.status === TaskStatus.InProgress).length,
-        OnHold: filtered.filter((t) => t.status === TaskStatus.OnHold).length,
-        Completed: filtered.filter((t) => t.status === TaskStatus.Completed).length,
+        Todo: filtered.filter((t) => t.taskStatus === TaskStatus.Todo).length,
+        InProgress: filtered.filter((t) => t.taskStatus === TaskStatus.InProgress).length,
+        OnHold: filtered.filter((t) => t.taskStatus === TaskStatus.OnHold).length,
+        Completed: filtered.filter((t) => t.taskStatus === TaskStatus.Completed).length,
       };
     });
 
     const todayStr = new Date().toISOString().split('T')[0];
     const overdueTasksCount = allTasks.filter(
-      (t) => t.dueDate && t.dueDate < todayStr && t.status !== TaskStatus.Completed
+      (t) => t.dueDate && t.dueDate < todayStr && t.taskStatus !== TaskStatus.Completed
     ).length;
+    const upcomingTasksCount = allTasks.filter(
+      (t) => t.dueDate && t.dueDate >= todayStr && t.taskStatus !== TaskStatus.Completed
+    ).length;
+    const criticalOpenCount = criticalTasks;
 
     return {
       totalTasks,
@@ -368,26 +385,24 @@ export const taskApi = {
       priorityDistribution,
       typeStatusBreakdown,
       overdueTasksCount,
+      upcomingTasksCount,
+      criticalOpenCount,
     };
   },
 
   async testConnection(customUrl?: string): Promise<{ ok: boolean; message: string }> {
     const url = (customUrl || getApiBaseUrl()).replace(/\/+$/, '');
     try {
-      const res = await fetch(`${url}/api/tasks?page=0&size=1`, {
-        method: 'GET',
-        headers: { Accept: 'application/json' },
-      });
-      if (res.ok) {
-        return { ok: true, message: `Connected successfully to Spring Boot at ${url || 'relative path'}` };
+      const res = await apiClient.get('/api/v1/tasks', { baseURL: url, params: { page: 0, size: 1 } });
+      if (res.status === 200) {
+        return { ok: true, message: `Connected successfully to Spring Boot API at ${url}` };
       }
-      return { ok: false, message: `Server responded with status ${res.status} ${res.statusText}` };
-    } catch (e) {
-      return { ok: false, message: `Unable to reach Spring Boot API: ${(e as Error).message}` };
+      return { ok: false, message: `Server responded with status ${res.status}` };
+    } catch (e: any) {
+      return { ok: false, message: `Unable to reach Spring Boot API: ${e.message || e}` };
     }
   },
 
-  // Helper for offline local data pagination
   getLocalPaginatedTasks(params: TaskQueryParams) {
     let tasks = getLocalFallbackTasks();
     const totalUnfiltered = tasks.length;
@@ -405,13 +420,11 @@ export const taskApi = {
           t.title.toLowerCase().includes(q) ||
           t.ticketNumber.toLowerCase().includes(q) ||
           (t.description && t.description.toLowerCase().includes(q)) ||
-          (t.implementationDetails && t.implementationDetails.toLowerCase().includes(q)) ||
-          (t.assignedBy && t.assignedBy.toLowerCase().includes(q))
-      );
+          (t.implementationDetails && t.implementationDetails.toLowerCase().includes(q))      );
     }
 
     if (params.status && params.status.length > 0) {
-      tasks = tasks.filter((t) => params.status!.includes(t.status));
+      tasks = tasks.filter((t) => params.status!.includes(t.taskStatus));
     }
 
     if (params.taskType && params.taskType.length > 0) {
@@ -419,9 +432,9 @@ export const taskApi = {
     }
 
     if (params.quickFilter === 'active') {
-      tasks = tasks.filter((t) => t.status !== TaskStatus.Completed);
+      tasks = tasks.filter((t) => t.taskStatus !== TaskStatus.Completed);
     } else if (params.quickFilter === 'completed') {
-      tasks = tasks.filter((t) => t.status === TaskStatus.Completed);
+      tasks = tasks.filter((t) => t.taskStatus === TaskStatus.Completed);
     }
 
     if (params.startDate || params.endDate) {
@@ -462,7 +475,7 @@ export const taskApi = {
 
     const total = tasks.length;
     const page = params.page || 1;
-    const limit = params.limit || 50;
+    const limit = params.limit || 20;
     const totalPages = Math.max(1, Math.ceil(total / limit));
     const validPage = Math.min(page, totalPages);
     const startIndex = (validPage - 1) * limit;
@@ -470,10 +483,10 @@ export const taskApi = {
 
     const allOriginal = getLocalFallbackTasks();
     const statusCounts: Record<TaskStatus, number> = {
-      [TaskStatus.Todo]: allOriginal.filter((t) => t.status === TaskStatus.Todo && !t.isArchived).length,
-      [TaskStatus.InProgress]: allOriginal.filter((t) => t.status === TaskStatus.InProgress && !t.isArchived).length,
-      [TaskStatus.OnHold]: allOriginal.filter((t) => t.status === TaskStatus.OnHold && !t.isArchived).length,
-      [TaskStatus.Completed]: allOriginal.filter((t) => t.status === TaskStatus.Completed && !t.isArchived).length,
+      [TaskStatus.Todo]: allOriginal.filter((t) => t.taskStatus === TaskStatus.Todo && !t.isArchived).length,
+      [TaskStatus.InProgress]: allOriginal.filter((t) => t.taskStatus === TaskStatus.InProgress && !t.isArchived).length,
+      [TaskStatus.OnHold]: allOriginal.filter((t) => t.taskStatus === TaskStatus.OnHold && !t.isArchived).length,
+      [TaskStatus.Completed]: allOriginal.filter((t) => t.taskStatus === TaskStatus.Completed && !t.isArchived).length,
     };
 
     return {
