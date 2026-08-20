@@ -38,7 +38,7 @@ export function PostMortemModal() {
       setFormData({
         ticketNumber: activePostMortemTask.ticketNumber,
         title: activePostMortemTask.title,
-        incidentLead: activePostMortemTask.assignedBy || user?.username || 'Alex Rivera',
+        incidentLead: activePostMortemTask.assignedFrom || user?.username || 'Alex Rivera',
         severity: activePostMortemTask.priority,
         taskType: activePostMortemTask.taskType,
         incidentDate: initialDate,
@@ -75,7 +75,7 @@ export function PostMortemModal() {
           {
             id: 'a-1',
             action: 'Add mutex lock to token renewal handler in Auth service',
-            owner: activePostMortemTask.assignedBy || 'Alex Rivera',
+            owner: activePostMortemTask.assignedFrom || 'Alex Rivera',
             status: 'done',
           },
           {
